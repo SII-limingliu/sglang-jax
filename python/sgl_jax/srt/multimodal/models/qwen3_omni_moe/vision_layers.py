@@ -16,7 +16,8 @@ class Vision3DPatchEmbed(nnx.Module):
     """
     3D Convolutional Patch Embedding for video/image input.
 
-    Converts input (B, T, H, W, C) into patches (N_patches, embed_dim).
+    Converts flattened input (B, C*T*H*W) into patches (N_patches, embed_dim).
+    Input is assumed to be flattened in C-first order: (B, C, T, H, W) -> (B, C*T*H*W).
     """
 
     def __init__(
@@ -45,24 +46,26 @@ class Vision3DPatchEmbed(nnx.Module):
     def __call__(self, x: jax.Array) -> jax.Array:
         """
         Args:
-            x: (B, T, H, W, C) video/image tensor
+            x: (B, C*T*H*W) flattened video/image tensor in C-first order
 
         Returns:
             patches: (total_patches, embed_dim)
         """
-        # x shape: (B, T, H, W, C)
-        # Need to merge batch and temporal for conv
-        B, T, H, W, C = x.shape
+        # x shape: (B, C*T*H*W)
+        # Reshape to patch blocks: (B*N_patches, C, t_patch, p, p)
+        # where N_patches = (T/t_patch) * (H/p) * (W/p)
+        x = x.reshape(
+            -1, self.in_channels, self.temporal_patch_size, self.patch_size, self.patch_size
+        )
 
-        # Reshape for 3D conv: combine examples into batch
         # JAX Conv expects: (batch, spatial_dims..., channels)
-        x = x.reshape(-1, T, H, W, C)  # (B, T, H, W, C)
+        x = jnp.transpose(x, (0, 2, 3, 4, 1))  # (B*N_patches, t_patch, p, p, C)
 
-        # Apply 3D convolution
-        patches = self.proj(x)  # (B, T', H', W', embed_dim)
+        # Apply 3D convolution (outputs 1x1x1 per patch)
+        patches = self.proj(x)  # (B*N_patches, 1, 1, 1, embed_dim)
 
         # Flatten all spatial dimensions
-        patches = patches.reshape(-1, self.embed_dim)  # (B*T'*H'*W', embed_dim)
+        patches = patches.reshape(-1, self.embed_dim)  # (B*N_patches, embed_dim)
 
         return patches
 

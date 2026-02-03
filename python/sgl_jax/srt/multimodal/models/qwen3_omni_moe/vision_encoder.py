@@ -383,15 +383,16 @@ class Qwen3OmniMoeVisionEncoder(nnx.Module):
 
     def __call__(
         self,
-        pixel_values: jax.Array,  # (B, T, H, W, C)
-        grid_thw: jax.Array,  # (B, 3) - [T, H_patches, W_patches]
+        pixel_values: jax.Array,  # (B, C*T*H*W)
+        grid_thw: jax.Array,  # (B, 3) - [T_out, H_patches, W_patches]
     ) -> dict[str, jax.Array]:
         """
         Forward pass of vision encoder.
 
         Args:
-            pixel_values: (B, T, H, W, C) video/image tensor
-            grid_thw: (B, 3) containing [T, H_patches, W_patches] for each input
+            pixel_values: (B, C*T*H*W) flattened video/image tensor in C-first order
+            grid_thw: (B, 3) containing [T_out, H_patches, W_patches] for each input
+                where T_out = T / temporal_patch_size
 
         Returns:
             Dictionary containing:
@@ -405,7 +406,7 @@ class Qwen3OmniMoeVisionEncoder(nnx.Module):
         # 0. Validate input shapes
         self._validate_input_shapes(grid_thw)
 
-        # 1. Patch Embedding
+        # 1. Patch Embedding (handles flattened input internally)
         hidden_states = self.patch_embed(pixel_values)  # (total_patches, hidden_size)
 
         # 2. Apply spatial merge permutation to match PyTorch order
